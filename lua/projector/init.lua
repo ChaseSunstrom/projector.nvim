@@ -45,12 +45,38 @@ local function get_types()
 	return types
 end
 
-local function select_type(opts)
+local function select_type(on_choice)
 	local types = get_types()
 	ui.select(types, { prompt = "Select project type:" }, function(type)
 		on_choice(type)
 	end)
 end
+
+local function select_project(prompt, on_choice)
+	local projects = storage.get_projects()
+	if #projects == 0 then
+	  return ui.notify("No projects saved yet.", vim.log.levels.WARN)
+	end
+  
+	-- Build label ↔ value map for the picker
+	local items, labels = {}, {}
+	for _, p in ipairs(projects) do
+	  local label = string.format("%s — %s", p.name or p.path, p.path)
+	  table.insert(items, { label = label, value = p })
+	  table.insert(labels, label)
+	end
+  
+	ui.select(labels, { prompt = prompt or "Select project:" }, function(choice_label)
+	  if not choice_label then return on_choice(nil) end
+	  for _, it in ipairs(items) do
+		if it.label == choice_label then
+		  return on_choice(it.value)
+		end
+	  end
+	  on_choice(nil)
+	end)
+  end
+  
 
 local function normpath(p)
 	if not p or p == "" then
@@ -219,61 +245,47 @@ function M.create_new_from_cli(raw_args)
 end
 
 function M.list_and_open()
-	local projects = storage.get_projects()
-	if #projects == 0 then
-		return ui.notify("No projects saved yet.", vim.log.levels.WARN)
-	end
-	local labels = vim.tbl_map(function(p)
-		return string.format("%s — %s", p.name or p.path, p.path)
-	end, projects)
-	ui.select(labels, { prompt = "Open project:" }, function(label)
-		if not label then
-			return
-		end
-		local idx = vim.fn.index(labels, label) + 1
-		local sel = projects[idx]
-		open_dir(sel.path)
+	select_project("Open Project: ", function(p)
+		if not p then return end
+		open_dir(p.path)
 	end)
 end
 
+
 function M.delete(opts)
 	opts = opts or {}
-	local arg = opts.arg -- can be path or name
+	local arg  = opts.arg   -- can be path or name
 	local bang = opts.bang
-
-	local target
-	if arg and arg ~= "" then
-		target = storage.find_by_path(arg) or storage.find_by_name(arg)
-		if not target then
-			return ui.notify("Project not found: " .. arg, vim.log.levels.WARN)
-		end
-	end
-
+  
 	local function do_delete(p)
-		if not bang then
-			local ok = ui.confirm("Delete project '" .. (p.name or p.path) .. "'?")
-			if not ok then
-				return
-			end
-		end
-		if p.name and storage.find_by_name(p.name) then
-			storage.remove_by_name(p.name)
-		else
-			storage.remove_project(p.path)
-		end
-		ui.notify("Deleted project: " .. (p.name or p.path))
+	  if not p then return end
+	  if not bang then
+		local ok = ui.confirm(("Delete project '%s'?"):format(p.name or p.path))
+		if not ok then return end
+	  end
+	  -- Prefer name delete if available (avoids path normalization issues)
+	  if p.name and storage.find_by_name and storage.find_by_name(p.name) then
+		storage.remove_by_name(p.name)
+	  else
+		storage.remove_project(p.path)
+	  end
+	  ui.notify(("Deleted project: %s"):format(p.name or p.path))
 	end
-
-	if target then
+  
+	-- If user provided an argument, try resolve directly first
+	if arg and arg ~= "" then
+	  local target = storage.find_by_path(arg) or (storage.find_by_name and storage.find_by_name(arg)) or nil
+	  if target then
 		return do_delete(target)
-	else
-		return select_project("Delete project:", function(p)
-			if p then
-				do_delete(p)
-			end
-		end)
+	  end
+	  -- Fall back to picker if not found
+	  return select_project("Delete project:", do_delete)
 	end
-end
+  
+	-- No arg → let the user pick
+	return select_project("Delete project:", do_delete)
+  end
+  
 
 function M.open(opts)
 	opts = opts or {}
