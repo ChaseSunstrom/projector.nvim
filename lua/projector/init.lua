@@ -5,58 +5,97 @@ local runner = require("projector.runner")
 local M = {}
 
 local CONFIG = {
-	projects_dir = nil,   -- e.g. "~/Projects" ; if nil, :ProjectNew requires --in
-	mkdir = true,         -- create missing parent dirs
-	git_init = false,     -- optionally run `git init` when creating a project dir
-  }
-  
-  local function set_config(user)
+	projects_dir = nil, -- e.g. "~/Projects" ; if nil, :ProjectNew requires --in
+	mkdir = true, -- create missing parent dirs
+	git_init = false, -- optionally run `git init` when creating a project dir
+}
+
+local function set_config(user)
 	user = user or {}
 	CONFIG = vim.tbl_deep_extend("force", CONFIG, user)
-  end
-
-  local uv = vim.uv or vim.loop
+end
+local uv = vim.uv or vim.loop
 
 local function expanduser(p)
-  if not p or p == "" then return p end
-  if p:sub(1, 2) == "~/" then
-    return vim.fn.expand(p)
-  end
-  return p
+	if not p or p == "" then
+		return p
+	end
+	if p:sub(1, 2) == "~/" then
+		return vim.fn.expand(p)
+	end
+	return p
+end
+
+local function select_type(opts)
+	local types = get_types()
+	ui.select(types, { prompt = "Select project type:" }, function(type)
+		if not type then
+			return
+		end
+
+		local idx = vim.fn.index(types, type) + 1
+		opts.type = types[idx]
+	end)
+end
+
+local function get_types()
+	local types = {
+		"C",
+		"C++",
+		"C#",
+		"Java",
+		"Javascript",
+		"Python",
+		"TypeScript",
+		"Haskell",
+		"Rust",
+		"Zig",
+	}
+
+	table.sort(types)
 end
 
 local function normpath(p)
-  if not p or p == "" then return p end
-  p = vim.fn.fnamemodify(expanduser(p), ":p")
-  if vim.endswith(p, "/") or vim.endswith(p, "\\") then
-    p = p:sub(1, #p - 1)
-  end
-  return p
+	if not p or p == "" then
+		return p
+	end
+	p = vim.fn.fnamemodify(expanduser(p), ":p")
+	if vim.endswith(p, "/") or vim.endswith(p, "\\") then
+		p = p:sub(1, #p - 1)
+	end
+	return p
 end
 
 local function joinpath(a, b)
-  a = normpath(a)
-  if not a or a == "" then return normpath(b) end
-  return normpath(a .. "/" .. b)
+	a = normpath(a)
+	if not a or a == "" then
+		return normpath(b)
+	end
+	return normpath(a .. "/" .. b)
 end
 
 local function ensure_dir(dir)
-  dir = normpath(dir)
-  if vim.fn.isdirectory(dir) == 1 then return true end
-  if not CONFIG.mkdir then
-    return false, "Parent directory does not exist: " .. dir
-  end
-  vim.fn.mkdir(dir, "p")
-  return true
+	dir = normpath(dir)
+	if vim.fn.isdirectory(dir) == 1 then
+		return true
+	end
+	if not CONFIG.mkdir then
+		return false, "Parent directory does not exist: " .. dir
+	end
+	vim.fn.mkdir(dir, "p")
+	return true
 end
 
 local function run_git_init(dir)
-  if not CONFIG.git_init then return end
-  if vim.fn.executable("git") ~= 1 then return end
-  -- non-blocking is fine, but simple works too:
-  vim.fn.system({ "git", "-C", dir, "init" })
+	if not CONFIG.git_init then
+		return
+	end
+	if vim.fn.executable("git") ~= 1 then
+		return
+	end
+	-- non-blocking is fine, but simple works too:
+	vim.fn.system({ "git", "-C", dir, "init" })
 end
-
 
 local function cwd()
 	return vim.fn.fnamemodify(vim.fn.getcwd(), ":p")
@@ -64,30 +103,32 @@ end
 
 local function parse_new_args(raw)
 	local parts = vim.fn.split(raw, " ")
-	local opts = { name = nil, parent = nil, run = nil }
+	local opts = { name = nil, parent = nil, run = nil, type = nil }
 	local i = 1
 	while i <= #parts do
-	  local tok = parts[i]
-	  if tok == "--in" then
-		i = i + 1
-		opts.parent = parts[i]
-	  elseif tok == "--run" then
-		i = i + 1
-		opts.run = parts[i]
-	  else
-		-- first bare token = name
-		if not opts.name then
-		  opts.name = tok
+		local tok = parts[i]
+		if tok == "--in" then
+			i = i + 1
+			opts.parent = parts[i]
+		elseif tok == "--run" then
+			i = i + 1
+			opts.run = parts[i]
+		elseif tok == "--type" then
+			i = i + 1
+			opts.type = parts[i]
 		else
-		  -- allow spaces in name if user quoted poorly: glue rest
-		  opts.name = opts.name .. " " .. tok
+			-- first bare token = name
+			if not opts.name then
+				opts.name = tok
+			else
+				-- allow spaces in name if user quoted poorly: glue rest
+				opts.name = opts.name .. " " .. tok
+			end
 		end
-	  end
-	  i = i + 1
+		i = i + 1
 	end
 	return opts
-  end
-  
+end
 
 local function open_dir(dir)
 	-- open dir in current instance
@@ -110,54 +151,60 @@ end
 
 local function detect_run_command(dir)
 	local candidates = {
-	  { file = "package.json",   cmd = "npm run dev" },
-	  { file = "Cargo.toml",     cmd = "cargo run" },
-	  { file = "Makefile",       cmd = "make" },
-	  { file = "pyproject.toml", cmd = "python -m app" },
+		{ file = "package.json", cmd = "npm run dev" },
+		{ file = "Cargo.toml", cmd = "cargo run" },
+		{ file = "Makefile", cmd = "make" },
+		{ file = "pyproject.toml", cmd = "python -m app" },
 	}
 	for _, c in ipairs(candidates) do
-	  if vim.fn.filereadable(dir .. "/" .. c.file) == 1 then
-		return c.cmd
-	  end
+		if vim.fn.filereadable(dir .. "/" .. c.file) == 1 then
+			return c.cmd
+		end
 	end
-  end
-  
-  function M.create_new_from_cli(raw_args)
+end
+
+function M.create_new_from_cli(raw_args)
 	local args = parse_new_args(raw_args or "")
 	local parent = args.parent or CONFIG.projects_dir
 	if not parent or parent == "" then
-	  return ui.notify("No parent dir given. Pass --in {dir} or set projects_dir in setup().",
-		vim.log.levels.ERROR)
+		ui.notify("No parent dir given. (Defaulting to: ~/Projects/) set projects_dir in setup().", vim.log.levels.WARN)
+		CONFIG.projects_dir = "~/Projects/"
 	end
 	parent = normpath(parent)
-  
+
 	-- Ask for name if not provided
 	local name = args.name or ui.input("New project name?", "")
 	if not name or name == "" then
-	  return ui.notify("Project name is required.", vim.log.levels.ERROR)
+		return ui.notify("Project name is required.", vim.log.levels.ERROR)
 	end
-  
+
 	local dir = joinpath(parent, name)
 	local ok, err = ensure_dir(dir)
-	if not ok then return ui.notify(err, vim.log.levels.ERROR) end
-  
+	if not ok then
+		return ui.notify(err, vim.log.levels.ERROR)
+	end
+
 	-- Optional git init
 	run_git_init(dir)
-  
+
 	-- Run command: arg > detected > prompt
 	local run = args.run
 	if not run or run == "" then
-	  run = detect_run_command(dir) or ui.input("Run command? (optional)", "")
+		run = detect_run_command(dir) or ui.input("Run command? (optional)", "")
 	end
-  
+
+	local type = args.type
+	if not type or type == "" then
+		select_type(args)
+	end
+
 	-- Register
-	storage.upsert_project({ name = name, path = dir, run = run })
-  
+	storage.upsert_project({ name = name, path = dir, run = run, type = type })
+
 	-- cd + feedback
 	vim.cmd("cd " .. vim.fn.fnameescape(dir))
 	ui.notify("Created project at " .. dir)
-  end
-  
+end
 
 function M.list_and_open()
 	local projects = storage.get_projects()
@@ -181,34 +228,38 @@ function M.delete(opts)
 	opts = opts or {}
 	local arg = opts.arg -- can be path or name
 	local bang = opts.bang
-  
+
 	local target
 	if arg and arg ~= "" then
-	  target = storage.find_by_path(arg) or storage.find_by_name(arg)
-	  if not target then
-		return ui.notify("Project not found: " .. arg, vim.log.levels.WARN)
-	  end
+		target = storage.find_by_path(arg) or storage.find_by_name(arg)
+		if not target then
+			return ui.notify("Project not found: " .. arg, vim.log.levels.WARN)
+		end
 	end
-  
+
 	local function do_delete(p)
-	  if not bang then
-		local ok = ui.confirm("Delete project '" .. (p.name or p.path) .. "'?")
-		if not ok then return end
-	  end
-	  if p.name and storage.find_by_name(p.name) then
-		storage.remove_by_name(p.name)
-	  else
-		storage.remove_project(p.path)
-	  end
-	  ui.notify("Deleted project: " .. (p.name or p.path))
+		if not bang then
+			local ok = ui.confirm("Delete project '" .. (p.name or p.path) .. "'?")
+			if not ok then
+				return
+			end
+		end
+		if p.name and storage.find_by_name(p.name) then
+			storage.remove_by_name(p.name)
+		else
+			storage.remove_project(p.path)
+		end
+		ui.notify("Deleted project: " .. (p.name or p.path))
 	end
-  
+
 	if target then
-	  return do_delete(target)
+		return do_delete(target)
 	else
-	  return select_project("Delete project:", function(p)
-		if p then do_delete(p) end
-	  end)
+		return select_project("Delete project:", function(p)
+			if p then
+				do_delete(p)
+			end
+		end)
 	end
 end
 
@@ -242,8 +293,7 @@ function M.setup(user_opts)
 
 	vim.api.nvim_create_user_command("ProjectNew", function(cmd)
 		M.create_new_from_cli(cmd.args)
-	  end, { nargs = "*" })
-	  
+	end, { nargs = "*" })
 
 	vim.api.nvim_create_user_command("ProjectList", function()
 		M.list_and_open()
@@ -256,7 +306,7 @@ function M.setup(user_opts)
 
 	vim.api.nvim_create_user_command("ProjectDelete", function(cmd)
 		M.delete({ arg = cmd.args, bang = cmd.bang })
-	  end, { nargs = "?", bang = true })
+	end, { nargs = "?", bang = true })
 
 	vim.api.nvim_create_user_command("ProjectRun", function(cmd)
 		local path = cmd.args ~= "" and cmd.args or nil
