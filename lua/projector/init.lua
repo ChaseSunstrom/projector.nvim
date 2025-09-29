@@ -41,17 +41,14 @@ local function get_types()
 	}
 
 	table.sort(types)
+
+	return types
 end
 
 local function select_type(opts)
 	local types = get_types()
 	ui.select(types, { prompt = "Select project type:" }, function(type)
-		if not type then
-			return
-		end
-
-		local idx = vim.fn.index(types, type) + 1
-		opts.type = types[idx]
+		on_choice(type)
 	end)
 end
 
@@ -163,6 +160,15 @@ local function detect_run_command(dir)
 	end
 end
 
+local function finalize_create(dir, name, run, ptype)
+	-- Register
+	storage.upsert_project({ name = name, path = dir, run = run, type = ptype })
+
+	-- cd + feedback
+	vim.cmd("cd " .. vim.fn.fnameescape(dir))
+	ui.notify(("Created project '%s' at %s"):format(name, dir))
+end
+
 function M.create_new_from_cli(raw_args)
 	local args = parse_new_args(raw_args or "")
 	local parent = args.parent or CONFIG.projects_dir
@@ -198,12 +204,18 @@ function M.create_new_from_cli(raw_args)
 		select_type(args)
 	end
 
-	-- Register
-	storage.upsert_project({ name = name, path = dir, run = run, type = type })
+	if args.type and args.type ~= "" then
+		return finalize_create(dir, name, run, args.type)
+	end
 
-	-- cd + feedback
-	vim.cmd("cd " .. vim.fn.fnameescape(dir))
-	ui.notify("Created project at " .. dir)
+	-- Otherwise, ask and finish in the callback.
+	select_type(function(choice)
+		if not choice or choice == "" then
+			-- user cancelled; still create without a type (or bail if you prefer)
+			return finalize_create(dir, name, run, nil)
+		end
+		finalize_create(dir, name, run, choice)
+	end)
 end
 
 function M.list_and_open()
