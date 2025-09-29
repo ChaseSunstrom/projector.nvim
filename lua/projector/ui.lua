@@ -5,6 +5,14 @@ function M.input(prompt, default, opts)
 	return vim.fn.input({ prompt = prompt .. " ", default = default or "", cancelreturn = opts.cancelreturn or "" })
 end
 
+function M.confirm(msg, default_yes)
+	local choices = default_yes and "[Y/n]" or "[y/N]"
+	local ans = vim.fn.input({ prompt = msg .. " " .. choices .. " " })
+	ans = ans:lower()
+	if ans == "" then return default_yes and true or false end
+	return ans == "y" or ans == "yes"
+end
+
 function M.select(items, opts, on_choice)
 	opts = opts or { prompt = "Select:" }
 	if vim.ui and vim.ui.select then

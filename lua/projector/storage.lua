@@ -106,6 +106,23 @@ function M.remove_project(path)
 	M.save(db)
 end
 
+function M.find_by_name(name)
+	if not name or name == "" then return nil end
+	for _, p in ipairs(M.get_projects()) do
+	  if p.name == name then return p end
+	end
+  end
+
+function M.remove_by_name(name)
+	local db = M.load()
+	local new = {}
+	for _, p in ipairs(db.projects) do
+		if p.name ~= name then table.insert(new, p) end
+	end
+	db.projects = new
+	M.save(db)
+end
+
 function M.get_projects()
 	local db = M.load()
 	table.sort(db.projects, function(a, b)
