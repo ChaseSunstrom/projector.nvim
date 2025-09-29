@@ -26,18 +26,6 @@ local function expanduser(p)
 	return p
 end
 
-local function select_type(opts)
-	local types = get_types()
-	ui.select(types, { prompt = "Select project type:" }, function(type)
-		if not type then
-			return
-		end
-
-		local idx = vim.fn.index(types, type) + 1
-		opts.type = types[idx]
-	end)
-end
-
 local function get_types()
 	local types = {
 		"C",
@@ -53,6 +41,18 @@ local function get_types()
 	}
 
 	table.sort(types)
+end
+
+local function select_type(opts)
+	local types = get_types()
+	ui.select(types, { prompt = "Select project type:" }, function(type)
+		if not type then
+			return
+		end
+
+		local idx = vim.fn.index(types, type) + 1
+		opts.type = types[idx]
+	end)
 end
 
 local function normpath(p)
