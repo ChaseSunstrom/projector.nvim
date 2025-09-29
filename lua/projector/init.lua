@@ -225,22 +225,15 @@ function M.create_new_from_cli(raw_args)
 		run = detect_run_command(dir) or ui.input("Run command? (optional)", "")
 	end
 
-	local type = args.type
-	if not type or type == "" then
-		select_type(args)
-	end
+	local ptype = args.type
 
-	if args.type and args.type ~= "" then
-		return finalize_create(dir, name, run, args.type)
+	if ptype and ptype ~= "" then
+	  return finalize_create(dir, name, run, ptype)
 	end
-
-	-- Otherwise, ask and finish in the callback.
+	
+	-- Ask and finish in the async callback
 	select_type(function(choice)
-		if not choice or choice == "" then
-			-- user cancelled; still create without a type (or bail if you prefer)
-			return finalize_create(dir, name, run, nil)
-		end
-		finalize_create(dir, name, run, choice)
+	  finalize_create(dir, name, run, choice and choice or nil)
 	end)
 end
 
